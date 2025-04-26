@@ -1,6 +1,4 @@
 from django.urls import path
-from django.conf.urls.static import static
-from django.conf import settings
 
 from . import views
 
@@ -34,4 +32,24 @@ urlpatterns = [
         views.ProfileView.as_view(),
         name='profile'
     ),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    path(
+        'posts/<int:post_id>/comment/',
+        views.add_comment,
+        name='add_comment'
+    ),
+    path(
+        'posts/<post_id>/edit_comment/<comment_id>/',
+        views.edit_comment,
+        name='edit_comment'
+    ),
+        path(
+        'posts/<int:post_id>/delete/',
+        views.PostDeleteView.as_view(),
+        name='delete_post'
+    ),
+    path(
+        'posts/<int:post_id>/delete_comment/<int:comment_id>/',
+        views.delete_comment,
+        name='delete_comment'
+    ),
+]

@@ -1,14 +1,20 @@
-from django.views.generic import ListView, DetailView, CreateView, UpdateView
-from django.shortcuts import get_object_or_404
+from django.views.generic import (
+    ListView, DetailView, CreateView, UpdateView, DeleteView
+)
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.contrib.auth.models import User
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.urls import reverse_lazy
-from django.contrib.auth.mixins import UserPassesTestMixin
+from django.contrib.auth.mixins import (
+    LoginRequiredMixin,
+    UserPassesTestMixin,
+)
+from django.urls import reverse_lazy, reverse
 from django.contrib.auth import get_user_model
+from django.http import HttpResponseForbidden
 
-from .models import Category, Post
-from .forms import PostForm
+from .models import Category, Post, Comment
+from .forms import PostForm, CommentForm
 
 
 User = get_user_model()
@@ -40,6 +46,12 @@ class PostDetailView(PostBaseMixin, DetailView):
     context_object_name = 'post'
     pk_url_kwarg = 'post_id'
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['form'] = CommentForm()
+        context['comments'] = self.object.comments.all().select_related('author')
+        return context
+
 
 class CategoryPostsView(PostBaseMixin, ListView):
     template_name = 'blog/category.html'
@@ -68,7 +80,10 @@ class ProfileView(ListView):
     paginate_by = 10
 
     def get_queryset(self):
-        self.author = get_object_or_404(User, username=self.kwargs['username'])
+        self.author = get_object_or_404(
+            User,
+            username=self.kwargs['username']
+        )
         return Post.objects.filter(
             author=self.author,
             pub_date__lte=timezone.now(),
@@ -94,7 +109,8 @@ class PostCreateView(LoginRequiredMixin, CreateView):
     def get_success_url(self):
         return reverse_lazy(
             'blog:profile',
-            kwargs={'username': self.request.user.username})
+            kwargs={'username': self.request.user.username}
+        )
 
 
 class PostUpdateView(OnlyAuthorMixin, UpdateView):
@@ -114,10 +130,79 @@ class ProfileUpdateView(LoginRequiredMixin, UpdateView):
     model = User
     fields = ['first_name', 'last_name', 'username', 'email']
     template_name = 'blog/user.html'
-    success_url = reverse_lazy('profile')
 
     def get_success_url(self):
-        return reverse_lazy('blog:profile', kwargs={'username': self.request.user.username})
+        return reverse_lazy(
+            'blog:profile',
+            kwargs={'username': self.request.user.username}
+        )
 
     def get_object(self, queryset=None):
         return self.request.user
+
+
+class PostDeleteView(OnlyAuthorMixin, DeleteView):
+    model = Post
+    template_name = 'blog/detail.html'
+    pk_url_kwarg = 'post_id'
+    context_object_name = 'post'
+
+    def get_success_url(self):
+        return reverse(
+            'blog:profile',
+            kwargs={'username': self.request.user.username})
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['is_delete'] = True
+        return context
+
+
+@login_required
+def add_comment(request, post_id):
+    post = get_object_or_404(Post, pk=post_id)
+    form = CommentForm(request.POST)
+    if form.is_valid():
+        comment = form.save(commit=False)
+        comment.author = request.user
+        comment.post = post
+        comment.save()
+    return redirect('blog:post_detail', post_id=post_id)
+
+
+@login_required
+def edit_comment(request, post_id, comment_id):
+    comment = get_object_or_404(Comment, pk=comment_id, post_id=post_id)
+    if comment.author != request.user:
+        return HttpResponseForbidden()
+
+    if request.method == 'POST':
+        form = CommentForm(request.POST, instance=comment)
+        if form.is_valid():
+            form.save()
+            return redirect('blog:post_detail', post_id=post_id)
+    else:
+        form = CommentForm(instance=comment)
+
+    return render(request, 'blog/comment.html', {
+        'form': form,
+        'comment': comment,
+        'post_id': post_id
+    })
+
+
+@login_required
+def delete_comment(request, post_id, comment_id):
+    comment = get_object_or_404(Comment, pk=comment_id, post_id=post_id)
+    if comment.author != request.user:
+        return HttpResponseForbidden()
+
+    if request.method == 'POST':
+        comment.delete()
+        return redirect('blog:post_detail', post_id=post_id)
+
+    return render(request, 'blog/comment.html', {
+        'comment': comment,
+        'is_delete': True,
+        'post_id': post_id
+    })

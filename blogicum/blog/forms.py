@@ -1,6 +1,5 @@
 from django import forms
-from .models import Post
-# Comment
+from .models import Post, Comment
 
 
 class PostForm(forms.ModelForm):
@@ -20,8 +19,8 @@ class PostForm(forms.ModelForm):
         self.fields['pub_date'].input_formats = ['%Y-%m-%dT%H:%M']
 
 
-# class CommentForm(forms.ModelForm):
+class CommentForm(forms.ModelForm):
 
-#     class Meta:
-#         model = Comment
-#         fields = ('text',)
+    class Meta:
+        model = Comment
+        fields = ('text',)
