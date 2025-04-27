@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 
 User = get_user_model()
 MAX_LENGTH = 256
@@ -98,6 +99,11 @@ class Post(PublishedCreatedModel):
 
     def __str__(self):
         return self.title[:21]
+
+    def get_absolute_url(self):
+        return reverse(
+            'blog:post_detail', args=[self.pk]
+        )
 
 
 class Comment(models.Model):
