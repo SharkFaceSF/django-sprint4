@@ -27,7 +27,9 @@ class PostBaseMixin:
             pub_date__lte=timezone.now(),
             is_published=True,
             category__is_published=True
-        ).select_related('category', 'location', 'author').order_by('-pub_date')
+        ).select_related('category', 'location', 'author').order_by(
+            '-pub_date'
+        )
 
 
 class OnlyAuthorMixin(LoginRequiredMixin, UserPassesTestMixin):
@@ -118,8 +120,11 @@ class PostDetailView(DetailView):
     pk_url_kwarg = 'post_id'
 
     def get_queryset(self):
-        queryset = Post.objects.select_related('category', 'location', 'author')
-        if self.request.user.is_authenticated and self.request.user == queryset.first().author:
+        queryset = Post.objects.select_related(
+            'category', 'location', 'author'
+        )
+        if (self.request.user.is_authenticated 
+                and self.request.user == queryset.first().author):
             return queryset
         return queryset.filter(
             pub_date__lte=timezone.now(),
@@ -130,7 +135,9 @@ class PostDetailView(DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['form'] = CommentForm()
-        context['comments'] = self.object.comments.all().select_related('author')
+        context['comments'] = self.object.comments.all().select_related(
+            'author'
+        )
         return context
 
 
@@ -159,7 +166,9 @@ class PostUpdateView(OnlyAuthorMixin, UpdateView):
     def handle_no_permission(self):
         post_id = self.kwargs.get('post_id')
         if post_id:
-            return redirect(reverse_lazy('blog:post_detail', kwargs={'post_id': post_id}))
+            return redirect(
+                reverse_lazy('blog:post_detail', kwargs={'post_id': post_id})
+            )
         return super().handle_no_permission()
 
     def get_success_url(self):
