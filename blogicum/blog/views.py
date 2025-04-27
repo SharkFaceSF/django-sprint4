@@ -123,7 +123,7 @@ class PostDetailView(DetailView):
         queryset = Post.objects.select_related(
             'category', 'location', 'author'
         )
-        if (self.request.user.is_authenticated 
+        if (self.request.user.is_authenticated
                 and self.request.user == queryset.first().author):
             return queryset
         return queryset.filter(
