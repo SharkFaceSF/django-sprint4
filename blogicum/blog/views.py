@@ -1,43 +1,27 @@
-from django.views.generic import (
-    ListView, DetailView, CreateView, UpdateView, DeleteView
-)
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
-from django.contrib.auth.models import User
-from django.contrib.auth.mixins import (
-    LoginRequiredMixin,
-    UserPassesTestMixin,
-)
-from django.urls import reverse
 from django.contrib.auth import get_user_model
-from django.http import HttpResponseForbidden
-from django.forms import modelform_factory
-
-from .models import Category, Post, Comment
-from .forms import PostForm, CommentForm
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.models import User
 from django.db.models import Count
-from core.utils import get_posts, LIMIT_POSTS
+from django.forms import modelform_factory
+from django.http import HttpResponseForbidden
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
+from django.views.generic import (
+    CreateView,
+    DeleteView,
+    DetailView,
+    ListView,
+    UpdateView,
+)
 
+from blog.query_utils import PostBaseMixin, OnlyAuthorMixin, get_posts
+from blogicum.settings import LIMIT_POSTS
+from .forms import CommentForm, PostForm
+from .models import Category, Comment, Post
 
 User = get_user_model()
-
-
-class PostBaseMixin:
-    def get_queryset(self):
-        return get_posts()
-
-
-class OnlyAuthorMixin(LoginRequiredMixin, UserPassesTestMixin):
-    def test_func(self):
-        obj = self.get_object()
-        return obj.author == self.request.user
-
-    def handle_no_permission(self):
-        post_id = self.kwargs.get('post_id')
-        return redirect(
-            reverse('blog:post_detail', kwargs={'post_id': post_id})
-        )
 
 
 class PostListView(PostBaseMixin, ListView):
@@ -46,7 +30,7 @@ class PostListView(PostBaseMixin, ListView):
     paginate_by = LIMIT_POSTS
 
     def get_queryset(self):
-        return super().get_queryset().annotate(comment_count=Count('comments'))
+        return get_posts(with_comments=True)
 
 
 class CategoryPostsView(PostBaseMixin, ListView):
@@ -54,22 +38,21 @@ class CategoryPostsView(PostBaseMixin, ListView):
     context_object_name = 'post_list'
     paginate_by = LIMIT_POSTS
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['category'] = self.category
-        return context
-
-    def get_queryset(self):
-        self.category = get_object_or_404(
-            Category.objects.only('title', 'description'),
+    def get_category(self):
+        return get_object_or_404(
+            Category,
             slug=self.kwargs['category_slug'],
             is_published=True
         )
 
-        queryset = super().get_queryset()
-        return queryset.filter(
-            category__slug=self.kwargs['category_slug']
-        )
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['category'] = self.get_category()
+        return context
+
+    def get_queryset(self):
+        category = self.get_category()
+        return get_posts().filter(category=category)
 
 
 class ProfileUpdateView(LoginRequiredMixin, UpdateView):
@@ -97,29 +80,22 @@ class ProfileView(ListView):
 
     def get_queryset(self):
         author = self.get_author()
-        queryset = Post.objects.filter(
-            author=author
-        ).select_related('category', 'location', 'author').annotate(
-            comment_count=Count('comments')
-        ).order_by('-pub_date')
-
-        if self.request.user != author:
-            queryset = queryset.filter(
-                pub_date__lte=timezone.now(),
-                is_published=True,
-                category__is_published=True
-            )
-        return queryset
+        show_only_published = (self.request.user != author)
+        return get_posts(
+            manager=author.posts,
+            only_published=show_only_published,
+            with_comments=True
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         author = self.get_author()
-        context['profile'] = author
 
         if not author.first_name:
             author.first_name = author.username
-            author.save()
+            author.save(update_fields=['first_name'])
 
+        context['profile'] = author
         return context
 
 
@@ -129,34 +105,23 @@ class PostDetailView(DetailView):
     pk_url_kwarg = 'post_id'
 
     def get_object(self, queryset=None):
-        queryset = Post.objects.select_related(
-            'category', 'location', 'author'
+        post = get_object_or_404(
+            get_posts(only_published=False),
+            pk=self.kwargs['post_id']
         )
 
-        post = get_object_or_404(queryset, pk=self.kwargs['post_id'])
-
-        user_is_author = (
-            self.request.user.is_authenticated
-            and self.request.user == post.author
-        )
-        if user_is_author:
+        if self.request.user == post.author:
             return post
 
         return get_object_or_404(
-            queryset.filter(
-                pub_date__lte=timezone.now(),
-                is_published=True,
-                category__is_published=True
-            ),
+            get_posts(),
             pk=self.kwargs['post_id']
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['form'] = CommentForm()
-        context['comments'] = (
-            self.object.comments.all().select_related('author')
-        )
+        context['comments'] = self.object.comments.select_related('author')
         return context
 
 
@@ -202,8 +167,8 @@ class PostDeleteView(OnlyAuthorMixin, DeleteView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        PostForm = modelform_factory(Post, exclude=('author',))
-        context['form'] = PostForm(instance=self.get_object())
+        ProfileForm = modelform_factory(Post, exclude=('author',))
+        context['form'] = ProfileForm(instance=self.get_object())
 
         return context
 
